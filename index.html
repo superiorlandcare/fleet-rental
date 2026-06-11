@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fleet Availability</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+  html, body { background:#09090b; }
+  .font-display { font-family:'Oswald',system-ui,sans-serif; letter-spacing:.02em; }
+  .font-body { font-family:'Inter',system-ui,sans-serif; }
+  .hazard { background-image:repeating-linear-gradient(45deg,#27272a 0 7px,#a16207 7px 14px); }
+</style>
+</head>
+<body class="bg-zinc-950">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ---- icons (inline, no dependencies) -----------------------------------
+const ICONS = {
+  truck: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+  calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  "chevron-left": '<path d="m15 18-6-6 6-6"/>',
+  "chevron-right": '<path d="m9 18 6-6-6-6"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  rotate: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  image: '<path d="M16 5h6"/><path d="M19 2v6"/><path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/><circle cx="9" cy="9" r="2"/>',
+};
+function Icon({ name, className }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: ICONS[name] }} />;
+}
+
+// ---- config -------------------------------------------------------------
+const STORAGE_KEY = "dsm_fleet_bookings_v1";
+const PHOTO_KEY = "dsm_machine_photos_v1";
+const ATTACH_PHOTO_KEY = "dsm_attach_photos_v1";
+
+const MACHINES = [
+  { id: "mt100", name: "MT-100", maker: "Bobcat", type: "Mini Track Loader", blurb: "Stand-on · tight access" },
+  { id: "t66", name: "T66", maker: "Bobcat", type: "Compact Track Loader", blurb: "Cab · heavy lift" },
+];
+const ATTACHMENTS = [
+  { id: "bucket", name: "Standard Bucket", does: "Scoops and moves dirt, gravel, and mulch — the everyday workhorse." },
+  { id: "forks", name: "Pallet Forks", does: "Lifts and carries pallets, block, and bundled material." },
+  { id: "auger", name: "Auger", does: "Drills clean holes for posts, footings, and trees." },
+  { id: "grapple", name: "Grapple", does: "Grabs brush, rock, and debris that won't sit still in a bucket." },
+  { id: "trencher", name: "Trencher", does: "Cuts narrow trenches for drainage, water, and electrical lines." },
+  { id: "cutter", name: "Brush Cutter", does: "Mows down thick brush, saplings, and overgrowth." },
+  { id: "breaker", name: "Breaker", does: "Hydraulic hammer for breaking concrete and rock." },
+  { id: "blade", name: "Angle Blade", does: "Grades, levels, and pushes snow or dirt around the site." },
+];
+const C = {
+  mt100: { text: "text-amber-400", bar: "bg-amber-400", soft: "bg-amber-400/10", ring: "ring-amber-400", border: "border-amber-400/60", dot: "bg-amber-400", hex: "#fbbf24" },
+  t66: { text: "text-sky-400", bar: "bg-sky-400", soft: "bg-sky-400/10", ring: "ring-sky-400", border: "border-sky-400/60", dot: "bg-sky-400", hex: "#38bdf8" },
+};
+
+// ---- helpers ------------------------------------------------------------
+const pad = (n) => String(n).padStart(2, "0");
+const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const todayISO = iso(new Date());
+const parse = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const overlaps = (s1, e1, s2, e2) => s1 <= e2 && s2 <= e1;
+const uid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const fmtRange = (s, e) => {
+  const o = { month: "short", day: "numeric" };
+  const a = parse(s).toLocaleDateString("en-US", o);
+  const b = parse(e).toLocaleDateString("en-US", o);
+  return s === e ? a : `${a} – ${b}`;
+};
+function monthGrid(year, month) {
+  const lead = new Date(year, month, 1).getDay();
+  const days = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let d = 1; d <= days; d++) cells.push(iso(new Date(year, month, d)));
+  return cells;
+}
+function resizeToDataURL(file, maxDim = 1280, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
+        else if (h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
+        const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+        cv.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject; img.src = reader.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+}
+
+// ---- storage (browser localStorage) ------------------------------------
+function loadKey(key, fb) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fb; } catch { return fb; } }
+function saveKey(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch { return false; } }
+
+const seed = () => {
+  const base = new Date(); base.setHours(0, 0, 0, 0);
+  const plus = (n) => { const d = new Date(base); d.setDate(d.getDate() + n); return iso(d); };
+  return [
+    { id: "s1", machineId: "t66", type: "reservation", status: "confirmed", name: "Hartman Excavating", contact: "440-555-0184", start: plus(4), end: plus(6), createdAt: Date.now() },
+    { id: "s2", machineId: "mt100", type: "block", status: "confirmed", reason: "Personal job — backyard grading", start: plus(9), end: plus(10), createdAt: Date.now() },
+  ];
+};
+
+function FleetBooking() {
+  const [bookings, setBookings] = useState([]);
+  const [ready, setReady] = useState(false);
+  const [view, setView] = useState("reserve");
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    const data = loadKey(STORAGE_KEY, []);
+    if (data && data.length) setBookings(data);
+    else { const s = seed(); setBookings(s); saveKey(STORAGE_KEY, s); }
+    setReady(true);
+  }, []);
+
+  const persist = (next) => { setBookings(next); saveKey(STORAGE_KEY, next); };
+  const flash = (msg, kind = "ok") => { setToast({ msg, kind }); setTimeout(() => setToast(null), 2600); };
+  const dayState = (machineId, day) => { const b = bookings.find((x) => x.machineId === machineId && x.start <= day && day <= x.end); return b ? b.type : null; };
+  const rangeConflict = (machineId, s, e) => bookings.some((b) => b.machineId === machineId && overlaps(s, e, b.start, b.end));
+
+  return (
+    <div className="font-body min-h-screen bg-zinc-950 text-zinc-100 antialiased">
+      <header className="border-b border-zinc-800 bg-zinc-900/40">
+        <div className="mx-auto max-w-5xl px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="hazard h-9 w-9 rounded-md grid place-items-center ring-1 ring-zinc-700"><Icon name="truck" className="h-5 w-5 text-zinc-950" /></div>
+            <div>
+              <div className="font-display text-lg font-bold leading-none tracking-wide">FLEET AVAILABILITY</div>
+              <div className="text-[11px] uppercase tracking-widest text-zinc-500 mt-1">Equipment Rentals · Live schedule</div>
+            </div>
+          </div>
+          <div className="flex rounded-md border border-zinc-800 bg-zinc-900 p-1 text-sm">
+            {[["reserve", "Reserve a machine"], ["owner", "Owner schedule"]].map(([k, label]) => (
+              <button key={k} onClick={() => setView(k)} className={`px-3 py-1.5 rounded font-display tracking-wide transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${view === k ? "bg-amber-400 text-zinc-950 font-semibold" : "text-zinc-400 hover:text-zinc-100"}`}>{label}</button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {toast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-md text-sm shadow-lg flex items-center gap-2 ${toast.kind === "err" ? "bg-red-500 text-white" : "bg-amber-400 text-zinc-950"}`}>
+          <Icon name={toast.kind === "err" ? "alert" : "check"} className="h-4 w-4" />{toast.msg}
+        </div>
+      )}
+
+      <main className="mx-auto max-w-5xl px-5 py-7">
+        {!ready ? <div className="text-zinc-500 text-sm py-20 text-center">Loading…</div>
+          : view === "reserve" ? <ReserveView {...{ bookings, dayState, rangeConflict, persist, flash }} />
+          : <OwnerView {...{ bookings, dayState, rangeConflict, persist, flash }} />}
+      </main>
+    </div>
+  );
+}
+
+function ReserveView({ dayState, rangeConflict, persist, bookings, flash }) {
+  const [machineId, setMachineId] = useState("mt100");
+  const [cursor, setCursor] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const [start, setStart] = useState(null);
+  const [end, setEnd] = useState(null);
+  const [name, setName] = useState("");
+  const [contact, setContact] = useState("");
+  const [photos, setPhotos] = useState({});
+  const [attachPhotos, setAttachPhotos] = useState({});
+
+  useEffect(() => { setPhotos(loadKey(PHOTO_KEY, {})); setAttachPhotos(loadKey(ATTACH_PHOTO_KEY, {})); }, []);
+  const addPhoto = (url) => { const next = { ...photos, [machineId]: [...(photos[machineId] || []), url] }; setPhotos(next); return saveKey(PHOTO_KEY, next); };
+  const removePhoto = (url) => { const next = { ...photos, [machineId]: (photos[machineId] || []).filter((u) => u !== url) }; setPhotos(next); saveKey(PHOTO_KEY, next); };
+  const setAttachPhoto = (id, url) => { const next = { ...attachPhotos, [id]: url }; setAttachPhotos(next); return saveKey(ATTACH_PHOTO_KEY, next); };
+  const removeAttachPhoto = (id) => { const next = { ...attachPhotos }; delete next[id]; setAttachPhotos(next); saveKey(ATTACH_PHOTO_KEY, next); };
+
+  const col = C[machineId];
+  const cells = useMemo(() => monthGrid(cursor.y, cursor.m), [cursor]);
+  const monthLabel = new Date(cursor.y, cursor.m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const clickDay = (day) => {
+    if (!day || day < todayISO || dayState(machineId, day)) return;
+    if (!start || (start && end)) { setStart(day); setEnd(null); return; }
+    if (day < start) { setStart(day); return; }
+    if (rangeConflict(machineId, start, day)) { flash("Those dates run into a booked day. Pick a clear stretch.", "err"); setStart(null); setEnd(null); return; }
+    setEnd(day);
+  };
+  const reserve = () => {
+    if (!name.trim() || !contact.trim()) return flash("Add your name and a phone or email.", "err");
+    if (!start || !end) return flash("Pick a start and end date on the calendar.", "err");
+    if (rangeConflict(machineId, start, end)) return flash("Those dates just got taken. Try again.", "err");
+    const b = { id: uid(), machineId, type: "reservation", status: "requested", name: name.trim(), contact: contact.trim(), start, end, createdAt: Date.now() };
+    persist([...bookings, b]); setStart(null); setEnd(null); setName(""); setContact("");
+    flash(`Requested ${MACHINES.find((m) => m.id === machineId).name} for ${fmtRange(b.start, b.end)}`);
+  };
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_320px] gap-6">
+      <div className="space-y-6">
+        <div className="grid sm:grid-cols-2 gap-3">
+          {MACHINES.map((m) => {
+            const c = C[m.id]; const on = machineId === m.id;
+            return (
+              <button key={m.id} onClick={() => { setMachineId(m.id); setStart(null); setEnd(null); }} className={`text-left rounded-lg border p-4 transition focus:outline-none focus-visible:ring-2 ${c.ring} ${on ? `${c.border} ${c.soft}` : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700"}`}>
+                <div className="flex items-center justify-between">
+                  <span className={`font-display text-xl font-bold ${on ? c.text : "text-zinc-200"}`}>{m.name}</span>
+                  <span className={`h-2.5 w-2.5 rounded-full ${on ? c.dot : "bg-zinc-700"}`} />
+                </div>
+                <div className="text-xs text-zinc-400 mt-1">{m.maker} {m.type}</div>
+                <div className="text-[11px] text-zinc-500 mt-2 uppercase tracking-wider">{m.blurb}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        <MachineGallery machineId={machineId} photos={photos[machineId] || []} onAdd={addPhoto} onRemove={removePhoto} flash={flash} />
+        <AttachmentsRail photos={attachPhotos} onSet={setAttachPhoto} onRemove={removeAttachPhoto} flash={flash} />
+
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="font-display text-base tracking-wide">{monthLabel}</div>
+            <div className="flex gap-1">
+              <NavBtn onClick={() => setCursor((c) => c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 })}><Icon name="chevron-left" className="h-4 w-4" /></NavBtn>
+              <NavBtn onClick={() => setCursor((c) => c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 })}><Icon name="chevron-right" className="h-4 w-4" /></NavBtn>
+            </div>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-wider text-zinc-500 mb-1">
+            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i}>{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, i) => {
+              if (!day) return <div key={i} />;
+              const past = day < todayISO;
+              const st = dayState(machineId, day);
+              const inRange = start && (end ? day >= start && day <= end : day === start);
+              let cls = "text-zinc-200 hover:bg-zinc-800";
+              if (past) cls = "text-zinc-700 cursor-not-allowed";
+              else if (st === "block") cls = "hazard text-zinc-950 cursor-not-allowed font-semibold";
+              else if (st === "reservation") cls = "bg-zinc-700 text-zinc-400 line-through cursor-not-allowed";
+              if (inRange) cls = `${col.bar} text-zinc-950 font-bold`;
+              return <button key={i} disabled={past || !!st} onClick={() => clickDay(day)} className={`aspect-square rounded grid place-items-center text-sm transition focus:outline-none focus-visible:ring-2 ${col.ring} ${cls}`}>{parse(day).getDate()}</button>;
+            })}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px] text-zinc-400">
+            <Legend className={col.bar}>Your pick</Legend><Legend className="bg-zinc-700">Already booked</Legend><Legend className="hazard">Owner has it</Legend>
+          </div>
+        </div>
+      </div>
+
+      <aside className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 h-fit lg:sticky lg:top-5">
+        <div className="font-display text-sm uppercase tracking-wider text-zinc-400 mb-3">Your request</div>
+        <div className="text-sm space-y-2 mb-4">
+          <Row label="Machine"><span className={col.text}>{MACHINES.find((m) => m.id === machineId).name}</span></Row>
+          <Row label="Dates">{start && end ? fmtRange(start, end) : start ? `${parse(start).toLocaleDateString("en-US", { month: "short", day: "numeric" })} — pick end` : <span className="text-zinc-600">none yet</span>}</Row>
+        </div>
+        <Field label="Name" value={name} onChange={setName} placeholder="Jordan / company" />
+        <Field label="Phone or email" value={contact} onChange={setContact} placeholder="440-555-0100" />
+        <button onClick={reserve} className="w-full mt-2 bg-amber-400 text-zinc-950 font-display font-semibold tracking-wide rounded-md py-2.5 hover:bg-amber-300 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-200">Request these dates</button>
+        <p className="text-[11px] text-zinc-500 mt-3 leading-relaxed">This holds the dates as a request. Payment, deposit, and the waiver are handled when you pick up or take delivery.</p>
+      </aside>
+    </div>
+  );
+}
+
+function OwnerView({ bookings, dayState, rangeConflict, persist, flash }) {
+  const [cursor, setCursor] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const [bm, setBm] = useState("mt100");
+  const [bs, setBs] = useState("");
+  const [be, setBe] = useState("");
+  const [reason, setReason] = useState("");
+
+  const daysInMonth = new Date(cursor.y, cursor.m + 1, 0).getDate();
+  const monthLabel = new Date(cursor.y, cursor.m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const dayList = Array.from({ length: daysInMonth }, (_, i) => iso(new Date(cursor.y, cursor.m, i + 1)));
+
+  const addBlock = () => {
+    if (!bs || !be) return flash("Set a start and end date for your block.", "err");
+    if (be < bs) return flash("End date can't be before the start.", "err");
+    if (rangeConflict(bm, bs, be)) return flash("That overlaps something already on the calendar.", "err");
+    const b = { id: uid(), machineId: bm, type: "block", status: "confirmed", reason: reason.trim() || "Owner use", start: bs, end: be, createdAt: Date.now() };
+    persist([...bookings, b]); setBs(""); setBe(""); setReason("");
+    flash(`Blocked ${MACHINES.find((m) => m.id === bm).name} for ${fmtRange(b.start, b.end)}`);
+  };
+  const sorted = [...bookings].sort((a, b) => a.start.localeCompare(b.start));
+  const setStatus = (id, status) => persist(bookings.map((b) => b.id === id ? { ...b, status } : b));
+  const remove = (id) => persist(bookings.filter((b) => b.id !== id));
+  const resetAll = () => { const s = seed(); persist(s); flash("Reset to demo data"); };
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="font-display text-base tracking-wide">{monthLabel}</div>
+          <div className="flex gap-1">
+            <NavBtn onClick={() => setCursor((c) => c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 })}><Icon name="chevron-left" className="h-4 w-4" /></NavBtn>
+            <NavBtn onClick={() => setCursor((c) => c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 })}><Icon name="chevron-right" className="h-4 w-4" /></NavBtn>
+          </div>
+        </div>
+        <div className="space-y-2 overflow-x-auto">
+          {MACHINES.map((m) => {
+            const c = C[m.id];
+            return (
+              <div key={m.id} className="flex items-center gap-3 min-w-[640px]">
+                <div className="w-16 shrink-0 text-right"><div className={`font-display text-sm ${c.text}`}>{m.name}</div></div>
+                <div className="flex gap-[3px] flex-1">
+                  {dayList.map((day) => {
+                    const st = dayState(m.id, day); const isToday = day === todayISO;
+                    let cls = "bg-zinc-800/60";
+                    if (st === "reservation") cls = c.bar; else if (st === "block") cls = "hazard";
+                    return <div key={day} title={`${parse(day).toLocaleDateString("en-US", { month: "short", day: "numeric" })}${st ? " · " + (st === "block" ? "your block" : "reserved") : " · open"}`} className={`h-7 flex-1 rounded-sm ${cls} ${isToday ? "ring-1 ring-zinc-100" : ""}`} />;
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[11px] text-zinc-400">
+          <Legend className="bg-amber-400">MT-100 reserved</Legend><Legend className="bg-sky-400">T66 reserved</Legend><Legend className="hazard">Your block</Legend><Legend className="bg-zinc-800/60">Open</Legend>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-[300px_1fr] gap-6">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 h-fit">
+          <div className="font-display text-sm uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2"><Icon name="lock" className="h-3.5 w-3.5" /> Block off days</div>
+          <div className="mb-3">
+            <div className="text-[11px] uppercase tracking-wider text-zinc-500 mb-1">Machine</div>
+            <div className="flex gap-2">
+              {MACHINES.map((m) => (
+                <button key={m.id} onClick={() => setBm(m.id)} className={`flex-1 py-1.5 rounded text-sm font-display tracking-wide focus:outline-none focus-visible:ring-2 ${C[m.id].ring} ${bm === m.id ? `${C[m.id].bar} text-zinc-950 font-semibold` : "bg-zinc-800 text-zinc-400 hover:text-zinc-100"}`}>{m.name}</button>
+              ))}
+            </div>
+          </div>
+          <DateInput label="From" value={bs} onChange={setBs} />
+          <DateInput label="To" value={be} onChange={setBe} />
+          <Field label="Reason (optional)" value={reason} onChange={setReason} placeholder="Personal job, maintenance…" />
+          <button onClick={addBlock} className="w-full mt-1 bg-zinc-100 text-zinc-950 font-display font-semibold tracking-wide rounded-md py-2 hover:bg-white transition flex items-center justify-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"><Icon name="plus" className="h-4 w-4" /> Block these days</button>
+        </div>
+
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="font-display text-sm uppercase tracking-wider text-zinc-400 flex items-center gap-2"><Icon name="calendar" className="h-3.5 w-3.5" /> Everything on the books</div>
+            <button onClick={resetAll} className="text-[11px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1"><Icon name="rotate" className="h-3 w-3" /> Reset demo</button>
+          </div>
+          {sorted.length === 0 ? <div className="text-sm text-zinc-500 py-8 text-center">Nothing booked yet. Reservations and your blocks will land here.</div> : (
+            <div className="divide-y divide-zinc-800">
+              {sorted.map((b) => {
+                const m = MACHINES.find((x) => x.id === b.machineId); const c = C[b.machineId];
+                return (
+                  <div key={b.id} className="py-3 flex items-center gap-3 flex-wrap">
+                    <span className={`h-2.5 w-2.5 rounded-full ${c.dot} shrink-0`} />
+                    <div className="flex-1 min-w-[160px]">
+                      <div className="text-sm"><span className={`font-display ${c.text}`}>{m.name}</span><span className="text-zinc-500"> · {fmtRange(b.start, b.end)}</span></div>
+                      <div className="text-xs text-zinc-400 mt-0.5">{b.type === "block" ? <span className="text-amber-400/80">Owner block — {b.reason}</span> : <>{b.name} · {b.contact}</>}</div>
+                    </div>
+                    {b.type === "reservation" && <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded ${b.status === "confirmed" ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-400/15 text-amber-400"}`}>{b.status}</span>}
+                    <div className="flex gap-1">
+                      {b.type === "reservation" && b.status === "requested" && <button onClick={() => setStatus(b.id, "confirmed")} title="Confirm" className="p-1.5 rounded bg-zinc-800 hover:bg-emerald-500 hover:text-zinc-950 transition"><Icon name="check" className="h-3.5 w-3.5" /></button>}
+                      <button onClick={() => remove(b.id)} title="Remove" className="p-1.5 rounded bg-zinc-800 hover:bg-red-500 transition"><Icon name="x" className="h-3.5 w-3.5" /></button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MachineGallery({ machineId, photos, onAdd, onRemove, flash }) {
+  const m = MACHINES.find((x) => x.id === machineId); const c = C[machineId];
+  const [hero, setHero] = useState(0);
+  useEffect(() => { setHero(0); }, [machineId]);
+  const slides = ["__art__", ...photos];
+  const safe = Math.min(hero, slides.length - 1);
+  const handleFile = async (file) => {
+    try { const url = await resizeToDataURL(file); const ok = onAdd(url); if (ok === false) flash("Couldn't save — storage is full. Remove a photo and retry.", "err"); else { setHero(photos.length + 1); flash("Photo added"); } }
+    catch { flash("That file didn't load as an image.", "err"); }
+  };
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="font-display text-sm uppercase tracking-wider text-zinc-400">{m.maker} {m.name}</div>
+        <UploadButton onFile={handleFile} title="Upload a photo" className="text-[11px] text-zinc-400 hover:text-zinc-100 flex items-center gap-1"><Icon name="image" className="h-3.5 w-3.5" /> Upload photo</UploadButton>
+      </div>
+      <div className="aspect-video rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 grid place-items-center relative">
+        <SmartImg src={slides[safe] === "__art__" ? null : slides[safe]} alt={`${m.maker} ${m.name}`} className="w-full h-full object-cover" fallback={<><MachineArt id={machineId} accent={c.hex} /><span className="absolute bottom-2 right-3 text-[10px] uppercase tracking-wider text-zinc-600">Placeholder · upload real photos</span></>} />
+      </div>
+      <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
+        {slides.map((s, i) => (
+          <button key={i} onClick={() => setHero(i)} className={`relative h-14 w-20 shrink-0 rounded border overflow-hidden grid place-items-center ${safe === i ? c.border : "border-zinc-800"} bg-zinc-950`}>
+            <SmartImg src={s === "__art__" ? null : s} alt="" className="w-full h-full object-cover" fallback={<MachineArt id={machineId} accent={c.hex} mini />} />
+            {s !== "__art__" && <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); onRemove(s); }} className="absolute top-0.5 right-0.5 bg-zinc-900/80 rounded-full p-0.5 hover:bg-red-500 cursor-pointer"><Icon name="x" className="h-3 w-3" /></span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MachineArt({ id, accent, mini }) {
+  const common = { width: "100%", height: "100%", viewBox: "0 0 280 180", className: mini ? "p-1.5" : "p-6" };
+  const tracksFill = "#3f3f46", roller = "#71717a", glass = "#18181b", scoop = "#27272a";
+  if (id === "mt100") {
+    return (
+      <svg {...common}>
+        <path d="M66 134 H206 a16 16 0 0 1 0 32 H66 a16 16 0 0 1 0 -32 Z" fill={tracksFill} />
+        {[80, 110, 140, 170, 196].map((cx) => <circle key={cx} cx={cx} cy="150" r="5" fill={roller} />)}
+        <rect x="80" y="104" width="110" height="34" rx="6" fill={accent} />
+        <rect x="186" y="68" width="14" height="42" rx="3" fill={accent} />
+        <path d="M196 68 v-12" stroke={accent} strokeWidth="4" strokeLinecap="round" />
+        <path d="M150 102 C116 92 86 102 60 124" stroke={accent} strokeWidth="11" fill="none" strokeLinecap="round" />
+        <path d="M70 116 H44 a6 6 0 0 0 -6 6 l4 24 a4 4 0 0 0 4 3 H64 Z" fill={scoop} stroke={accent} strokeWidth="2" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <path d="M58 132 H212 a18 18 0 0 1 0 36 H58 a18 18 0 0 1 0 -36 Z" fill={tracksFill} />
+      {[72, 104, 135, 166, 198].map((cx) => <circle key={cx} cx={cx} cy="150" r="6" fill={roller} />)}
+      <rect x="74" y="98" width="132" height="40" rx="6" fill={accent} />
+      <rect x="150" y="56" width="60" height="46" rx="6" fill={accent} />
+      <rect x="158" y="64" width="38" height="28" rx="3" fill={glass} />
+      <path d="M150 96 C112 84 78 96 50 122" stroke={accent} strokeWidth="12" fill="none" strokeLinecap="round" />
+      <path d="M60 112 H32 a6 6 0 0 0 -6 6 l4 26 a4 4 0 0 0 4 3 H54 Z" fill={scoop} stroke={accent} strokeWidth="2" />
+    </svg>
+  );
+}
+
+function AttachmentsRail({ photos, onSet, onRemove, flash }) {
+  const ref = useRef(null);
+  const scroll = (dir) => ref.current && ref.current.scrollBy({ left: dir * 240, behavior: "smooth" });
+  const handleFile = async (id, file) => {
+    try { const url = await resizeToDataURL(file); const ok = onSet(id, url); if (ok === false) flash("Couldn't save — storage is full.", "err"); else flash("Photo added"); }
+    catch { flash("That file didn't load as an image.", "err"); }
+  };
+  return (
+    <section>
+      <div className="flex items-end justify-between mb-3">
+        <div><div className="font-display text-lg tracking-wide">Attachments</div><div className="text-xs text-zinc-500 mt-0.5">Swap any of these onto either machine. Scroll to see what each one does.</div></div>
+        <div className="hidden sm:flex gap-1"><NavBtn onClick={() => scroll(-1)}><Icon name="chevron-left" className="h-4 w-4" /></NavBtn><NavBtn onClick={() => scroll(1)}><Icon name="chevron-right" className="h-4 w-4" /></NavBtn></div>
+      </div>
+      <div ref={ref} className="flex gap-3 overflow-x-auto pb-3 snap-x snap-mandatory">
+        {ATTACHMENTS.map((a) => {
+          const photo = photos[a.id];
+          return (
+            <div key={a.id} className="snap-start shrink-0 w-56 rounded-lg border border-zinc-800 bg-zinc-900/40 overflow-hidden hover:border-zinc-700 transition">
+              <div className="h-28 relative bg-zinc-950 grid place-items-center text-amber-400">
+                <SmartImg src={photo} alt={a.name} className="w-full h-full object-cover" fallback={<AttachmentIcon id={a.id} />} />
+                <UploadButton onFile={(f) => handleFile(a.id, f)} title="Upload a photo" className="absolute top-1.5 right-1.5 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-100 rounded-md p-1.5"><Icon name="image" className="h-3.5 w-3.5" /></UploadButton>
+                {photo && <span role="button" tabIndex={0} onClick={() => onRemove(a.id)} className="absolute top-1.5 left-1.5 bg-zinc-900/80 hover:bg-red-500 text-zinc-100 rounded-md p-1.5 cursor-pointer"><Icon name="x" className="h-3.5 w-3.5" /></span>}
+              </div>
+              <div className="p-4"><div className="font-display text-base tracking-wide">{a.name}</div><div className="text-xs text-zinc-400 mt-1 leading-relaxed">{a.does}</div></div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function AttachmentIcon({ id }) {
+  const p = { width: 46, height: 46, viewBox: "0 0 48 48", fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" };
+  switch (id) {
+    case "bucket": return <svg {...p}><path d="M11 17h26l-4 17a3 3 0 0 1-3 2H18a3 3 0 0 1-3-2z" /><path d="M11 17l-3-6" /></svg>;
+    case "forks": return <svg {...p}><path d="M12 9v30M24 9v30M9 16h21" /></svg>;
+    case "auger": return <svg {...p}><path d="M24 7v30" /><path d="M16 12l16 4M16 20l16 4M16 28l16 4" /><path d="M21 41h6" /></svg>;
+    case "grapple": return <svg {...p}><path d="M24 8v9" /><path d="M14 17h20" /><path d="M14 17c-3 13 5 18 10 19M34 17c3 13-5 18-10 19" /></svg>;
+    case "trencher": return <svg {...p}><rect x="8" y="20" width="32" height="8" rx="4" /><path d="M12 28v3M18 28v4M24 28v3M30 28v4M36 28v3" /></svg>;
+    case "cutter": return <svg {...p}><circle cx="24" cy="25" r="13" /><path d="M24 25l9-5M24 25l-9-5M24 25v11" /></svg>;
+    case "breaker": return <svg {...p}><rect x="19" y="6" width="10" height="7" rx="1" /><path d="M24 13v18l-4 9M24 31l4 9" /></svg>;
+    case "blade": return <svg {...p}><path d="M9 31q15-9 30 0" /><path d="M24 22V13M24 13h9" /></svg>;
+    default: return null;
+  }
+}
+
+function UploadButton({ onFile, className, children, title }) {
+  const ref = useRef(null);
+  return (
+    <>
+      <button type="button" title={title} onClick={() => ref.current && ref.current.click()} className={className}>{children}</button>
+      <input ref={ref} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files && e.target.files[0]; if (f) onFile(f); if (ref.current) ref.current.value = ""; }} />
+    </>
+  );
+}
+function SmartImg({ src, alt, className, fallback }) {
+  const [err, setErr] = useState(false);
+  useEffect(() => { setErr(false); }, [src]);
+  if (!src || err) return fallback;
+  return <img src={src} alt={alt} className={className} onError={() => setErr(true)} />;
+}
+function NavBtn({ onClick, children }) {
+  return <button onClick={onClick} className="p-1.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">{children}</button>;
+}
+function Legend({ className, children }) {
+  return <span className="flex items-center gap-1.5"><span className={`h-3 w-3 rounded-sm ${className}`} />{children}</span>;
+}
+function Row({ label, children }) {
+  return <div className="flex justify-between"><span className="text-zinc-500">{label}</span><span className="text-zinc-200">{children}</span></div>;
+}
+function Field({ label, value, onChange, placeholder }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[11px] uppercase tracking-wider text-zinc-500 mb-1">{label}</div>
+      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-400 transition" />
+    </div>
+  );
+}
+function DateInput({ label, value, onChange }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[11px] uppercase tracking-wider text-zinc-500 mb-1">{label}</div>
+      <input type="date" value={value} min={todayISO} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-amber-400 transition [color-scheme:dark]" />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<FleetBooking />);
+</script>
+</body>
+</html>
