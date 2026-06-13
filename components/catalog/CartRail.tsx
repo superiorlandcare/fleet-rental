@@ -142,7 +142,10 @@ export function CartRail({
   const today = todayISO();
 
   return (
-    <aside className="h-fit rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 lg:sticky lg:top-5">
+    <aside
+      id="cart-rail"
+      className="h-fit scroll-mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 lg:sticky lg:top-5"
+    >
       <div className="font-display mb-3 text-sm uppercase tracking-wider text-zinc-400">
         Your rental
       </div>

@@ -11,8 +11,8 @@ import type {
   Settings,
 } from "@/lib/types";
 import { overlaps } from "@/lib/dates";
-import { ratesLine } from "@/lib/format";
-import type { CartLine, Fulfillment } from "@/lib/cart";
+import { money, ratesLine } from "@/lib/format";
+import { priceLines, quoteTotals, type CartLine, type Fulfillment } from "@/lib/cart";
 import { artKind } from "./art";
 import { Gallery } from "./Gallery";
 import { AttachmentsRail, type RailEntry } from "./AttachmentsRail";
@@ -352,6 +352,30 @@ export function CatalogView({
           />
         </div>
       </main>
+      )}
+
+      {/* mobile cart summary — jumps to the rail */}
+      {!result && lines.length > 0 && (
+        <button
+          type="button"
+          onClick={() =>
+            document.getElementById("cart-rail")?.scrollIntoView({ behavior: "smooth" })
+          }
+          className="font-display fixed inset-x-4 bottom-4 z-40 flex items-center justify-between rounded-lg bg-rapid-500 px-4 py-3 font-semibold tracking-wide text-zinc-950 shadow-xl lg:hidden"
+        >
+          <span>
+            {lines.length} item{lines.length > 1 ? "s" : ""} in your rental
+          </span>
+          <span>
+            {money(
+              quoteTotals(
+                priceLines(lines, items, compat, fulfillment),
+                settings,
+                fulfillment === "delivery" ? (deliveryQuote?.fee ?? null) : null
+              ).total
+            )}
+          </span>
+        </button>
       )}
 
       <footer className="border-t border-zinc-800">
