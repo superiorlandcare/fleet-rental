@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  /* Superior Landcare brand — GM Rapid Blue accent on near-black */
+  --color-rapid-200: #b3e3f9;
+  --color-rapid-300: #7fd0f4;
+  --color-rapid-400: #45b8ec;
+  --color-rapid-500: #1ba0e2;
+  --color-rapid-600: #0f81bb;
+  --color-rapid-700: #0c6593;
+
+  --font-display: var(--font-oswald), system-ui, sans-serif;
+  --font-body: var(--font-inter), system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-zinc-950 text-zinc-100 antialiased;
+    font-family: var(--font-body);
+  }
+}
+
+@utility font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+/* Owner block-off days on calendars — hazard stripes, rapid-blue tinted */
+@utility hazard {
+  background-image: repeating-linear-gradient(
+    45deg,
+    #27272a 0 7px,
+    #0c6593 7px 14px
+  );
+}
