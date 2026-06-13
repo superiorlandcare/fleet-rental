@@ -1,19 +1,28 @@
-export default function Home() {
+import { createClient } from "@/lib/supabase/server";
+import { CatalogView } from "@/components/catalog/CatalogView";
+import type { Category, Compatibility, Item, ItemPhoto, Settings } from "@/lib/types";
+
+// Catalog edits in admin should show up immediately.
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const supabase = await createClient();
+
+  const [categories, items, photos, compat, settings] = await Promise.all([
+    supabase.from("categories").select("*").order("sort_order"),
+    supabase.from("items").select("*").eq("active", true).order("sort_order"),
+    supabase.from("item_photos").select("*").order("sort_order"),
+    supabase.from("item_compatibility").select("*"),
+    supabase.from("settings").select("*").single(),
+  ]);
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6 text-center">
-      <p className="font-display text-sm font-semibold uppercase tracking-widest text-rapid-500">
-        Perry, Ohio
-      </p>
-      <h1 className="font-display mt-3 text-5xl font-700 uppercase sm:text-6xl">
-        Superior Landcare <span className="text-rapid-500">LLC</span>
-      </h1>
-      <p className="mt-4 max-w-xl text-zinc-400">
-        Equipment rentals — track loaders, trailers, and attachments with live
-        availability, delivery, and instant booking.
-      </p>
-      <p className="mt-10 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-2 text-sm text-zinc-500">
-        Catalog coming online — build in progress.
-      </p>
-    </main>
+    <CatalogView
+      categories={(categories.data ?? []) as Category[]}
+      items={(items.data ?? []) as Item[]}
+      photos={(photos.data ?? []) as ItemPhoto[]}
+      compat={(compat.data ?? []) as Compatibility[]}
+      settings={(settings.data ?? null) as Settings | null}
+    />
   );
 }
