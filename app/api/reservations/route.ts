@@ -292,7 +292,7 @@ export async function POST(req: Request) {
     "The fine print:",
     `• ${money(deposit)} deposit is due upfront with every rental.`,
     "• Return equipment with a full tank of fuel.",
-    "• Machine hours are capped per rental day — overages are billed at return.",
+    "• Rentals include up to 7 machine hours per day — overages are billed at return.",
     "• Bring it back clean — cleaning fees apply otherwise.",
     "• The rental form is signed and keys are handed off in person at pickup or delivery.",
     "",
