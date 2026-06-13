@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { Compatibility, Item, ItemPhoto } from "@/lib/types";
 import { money } from "@/lib/format";
 import { NavBtn, SmartImg } from "@/components/ui";
@@ -13,6 +13,30 @@ export type RailEntry = {
   photo: ItemPhoto | null;
 };
 
+function AddButton({
+  state,
+  onClick,
+}: {
+  state: { ok: boolean; reason?: string };
+  onClick: () => void;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        disabled={!state.ok}
+        onClick={onClick}
+        className="font-display mt-3 flex w-full items-center justify-center gap-1 rounded bg-rapid-500 py-1.5 text-xs font-semibold tracking-wide text-zinc-950 transition hover:bg-rapid-400 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+      >
+        <Plus className="h-3.5 w-3.5" /> Add to rental
+      </button>
+      {!state.ok && state.reason && (
+        <div className="mt-1.5 text-[10px] leading-snug text-zinc-500">{state.reason}</div>
+      )}
+    </>
+  );
+}
+
 /**
  * Contextual add-on scroller: only the attachments compatible with the
  * selected machine, priced per pairing (the shared backhoe shows $95/day on
@@ -22,9 +46,14 @@ export type RailEntry = {
 export function AttachmentsRail({
   machineName,
   entries,
+  canAdd,
+  onAdd,
 }: {
   machineName: string;
   entries: RailEntry[];
+  /** Why an add-on can't be added right now (machine not in cart, dates taken). */
+  canAdd: (entry: RailEntry) => { ok: boolean; reason?: string };
+  onAdd: (entry: RailEntry) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const scroll = (dir: number) =>
@@ -85,6 +114,12 @@ export function AttachmentsRail({
                       ? `${money(pairing.daily_rate)}/day${pairing.weekly_rate != null ? ` · ${money(pairing.weekly_rate)}/wk` : ""}`
                       : "Priced at pickup"}
               </div>
+              {!pairing.included && (
+                <AddButton
+                  state={canAdd({ attachment, pairing, photo })}
+                  onClick={() => onAdd({ attachment, pairing, photo })}
+                />
+              )}
             </div>
           </div>
         ))}

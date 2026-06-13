@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Truck } from "lucide-react";
+import { AlertTriangle, Check, Truck } from "lucide-react";
 import type {
   AvailabilityRange,
   Category,
@@ -10,13 +10,16 @@ import type {
   ItemPhoto,
   Settings,
 } from "@/lib/types";
-import { fmtDay, fmtRange, overlaps, rentalDays } from "@/lib/dates";
-import { money, ratesLine } from "@/lib/format";
-import { Row } from "@/components/ui";
+import { overlaps } from "@/lib/dates";
+import { ratesLine } from "@/lib/format";
+import type { CartLine, Fulfillment } from "@/lib/cart";
 import { artKind } from "./art";
 import { Gallery } from "./Gallery";
 import { AttachmentsRail, type RailEntry } from "./AttachmentsRail";
 import { AvailabilityCalendar } from "./AvailabilityCalendar";
+import { CartRail, type DeliveryQuote } from "./CartRail";
+
+type Toast = { msg: string; kind: "ok" | "err" };
 
 export function CatalogView({
   categories,
@@ -52,6 +55,18 @@ export function CatalogView({
   const [start, setStart] = useState<string | null>(null);
   const [end, setEnd] = useState<string | null>(null);
 
+  // ---- cart ----
+  const [lines, setLines] = useState<CartLine[]>([]);
+  const [fulfillment, setFulfillment] = useState<Fulfillment>("pickup");
+  const [address, setAddress] = useState("");
+  const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
+
+  const [toast, setToast] = useState<Toast | null>(null);
+  const flash = (msg: string, kind: Toast["kind"] = "ok") => {
+    setToast({ msg, kind });
+    setTimeout(() => setToast(null), 2600);
+  };
+
   // Live availability — bare date ranges per item, no PII.
   const [ranges, setRanges] = useState<AvailabilityRange[]>([]);
   const [loadingAvail, setLoadingAvail] = useState(true);
@@ -63,15 +78,104 @@ export function CatalogView({
       .finally(() => setLoadingAvail(false));
   }, []);
 
-  const isBooked = (itemId: string, day: string) =>
-    ranges.some((r) => r.item_id === itemId && r.start_date <= day && day <= r.end_date);
-  const hasConflict = (itemId: string, s: string, e: string) =>
-    ranges.some((r) => r.item_id === itemId && overlaps(s, e, r.start_date, r.end_date));
+  // Booked = live ranges plus what's already in this cart.
+  const isBooked = (itemId: string, day: string, excludeKey?: string) =>
+    ranges.some((r) => r.item_id === itemId && r.start_date <= day && day <= r.end_date) ||
+    lines.some((l) => l.itemId === itemId && l.key !== excludeKey && l.start <= day && day <= l.end);
+
+  const hasConflict = (itemId: string, s: string, e: string, excludeKey?: string) =>
+    ranges.some((r) => r.item_id === itemId && overlaps(s, e, r.start_date, r.end_date)) ||
+    lines.some((l) => l.itemId === itemId && l.key !== excludeKey && overlaps(s, e, l.start, l.end));
 
   const pick = (item: Item) => {
     setSelectedId(item.id);
     setStart(null);
     setEnd(null);
+  };
+
+  const addSelected = () => {
+    if (!selected || !start || !end) return;
+    if (hasConflict(selected.id, start, end)) {
+      flash("Those dates just got taken. Pick a clear stretch.", "err");
+      setStart(null);
+      setEnd(null);
+      return;
+    }
+    setLines((ls) => [
+      ...ls,
+      {
+        key: crypto.randomUUID(),
+        itemId: selected.id,
+        attachedToItemId: null,
+        start,
+        end,
+        rateMode: "daily",
+      },
+    ]);
+    setStart(null);
+    setEnd(null);
+    flash(`${selected.name} added to your rental`);
+  };
+
+  // ---- add-ons ----
+  const machineLineFor = (machineId: string) =>
+    lines.find((l) => l.itemId === machineId && !l.attachedToItemId) ?? null;
+
+  const canAddAttachment = (entry: RailEntry): { ok: boolean; reason?: string } => {
+    if (!selected) return { ok: false };
+    const machineLine = machineLineFor(selected.id);
+    if (!machineLine)
+      return { ok: false, reason: `Add the ${selected.name} to your rental first.` };
+    if (hasConflict(entry.attachment.id, machineLine.start, machineLine.end))
+      return { ok: false, reason: "Not available for your machine's dates." };
+    return { ok: true };
+  };
+
+  const addAttachment = (entry: RailEntry) => {
+    if (!selected) return;
+    const machineLine = machineLineFor(selected.id);
+    if (!machineLine) return;
+    setLines((ls) => [
+      ...ls,
+      {
+        key: crypto.randomUUID(),
+        itemId: entry.attachment.id,
+        attachedToItemId: selected.id,
+        start: machineLine.start,
+        end: machineLine.end,
+        rateMode: "daily",
+      },
+    ]);
+    flash(`${entry.attachment.name} added for the ${selected.name}`);
+  };
+
+  // ---- cart line ops ----
+  const updateDates = (key: string, s: string, e: string) => {
+    if (!s) return;
+    const fixedEnd = e && e >= s ? e : s;
+    const line = lines.find((l) => l.key === key);
+    if (!line) return;
+    if (hasConflict(line.itemId, s, fixedEnd, key)) {
+      flash("Those dates run into a booked day for that item.", "err");
+      return;
+    }
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, start: s, end: fixedEnd } : l)));
+  };
+
+  const setRateMode = (key: string, mode: "daily" | "four_hour") =>
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, rateMode: mode } : l)));
+
+  const removeLine = (key: string) => {
+    const line = lines.find((l) => l.key === key);
+    if (!line) return;
+    setLines((ls) => {
+      let next = ls.filter((l) => l.key !== key);
+      // Removing a machine's last line drops the add-ons riding on it.
+      if (!line.attachedToItemId && !next.some((l) => l.itemId === line.itemId && !l.attachedToItemId)) {
+        next = next.filter((l) => l.attachedToItemId !== line.itemId);
+      }
+      return next;
+    });
   };
 
   // Add-ons compatible with the selected machine, with pairing prices.
@@ -87,7 +191,11 @@ export function CatalogView({
         return { attachment, pairing, photo };
       })
       .filter((e): e is RailEntry => e !== null)
-      .sort((a, b) => Number(a.pairing.included) - Number(b.pairing.included) || a.attachment.sort_order - b.attachment.sort_order);
+      .sort(
+        (a, b) =>
+          Number(b.pairing.included) - Number(a.pairing.included) ||
+          a.attachment.sort_order - b.attachment.sort_order
+      );
   }, [selected, compat, items, photos]);
 
   const selectedPhotos = useMemo(
@@ -97,8 +205,6 @@ export function CatalogView({
         : [],
     [selected, photos]
   );
-
-  const days = start && end ? rentalDays(start, end) : null;
 
   return (
     <div className="min-h-screen">
@@ -119,6 +225,17 @@ export function CatalogView({
           </div>
         </div>
       </header>
+
+      {toast && (
+        <div
+          className={`fixed left-1/2 top-4 z-50 flex -translate-x-1/2 items-center gap-2 rounded-md px-4 py-2.5 text-sm shadow-lg ${
+            toast.kind === "err" ? "bg-red-500 text-white" : "bg-rapid-500 text-zinc-950"
+          }`}
+        >
+          {toast.kind === "err" ? <AlertTriangle className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+          {toast.msg}
+        </div>
+      )}
 
       <main className="mx-auto max-w-5xl px-5 py-7">
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -171,7 +288,12 @@ export function CatalogView({
                   })}
                 />
 
-                <AttachmentsRail machineName={selected.name} entries={railEntries} />
+                <AttachmentsRail
+                  machineName={selected.name}
+                  entries={railEntries}
+                  canAdd={canAddAttachment}
+                  onAdd={addAttachment}
+                />
 
                 <AvailabilityCalendar
                   isBooked={(day) => isBooked(selected.id, day)}
@@ -188,36 +310,25 @@ export function CatalogView({
             )}
           </div>
 
-          <aside className="h-fit rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 lg:sticky lg:top-5">
-            <div className="font-display mb-3 text-sm uppercase tracking-wider text-zinc-400">
-              Your rental
-            </div>
-            <div className="mb-4 space-y-2 text-sm">
-              <Row label="Item">
-                {selected ? <span className="text-rapid-400">{selected.name}</span> : "—"}
-              </Row>
-              <Row label="Dates">
-                {start && end ? (
-                  fmtRange(start, end)
-                ) : start ? (
-                  `${fmtDay(start)} — pick end`
-                ) : (
-                  <span className="text-zinc-600">none yet</span>
-                )}
-              </Row>
-              {days !== null && (
-                <Row label="Length">{days === 1 ? "1 day" : `${days} days`}</Row>
-              )}
-              {settings && (
-                <Row label="Deposit">{money(settings.deposit_amount)} (every rental)</Row>
-              )}
-            </div>
-            <p className="text-[11px] leading-relaxed text-zinc-500">
-              Pick an item and tap a start and end date on the calendar. Multi-item
-              booking with delivery and a full quote is coming online in the next
-              build step.
-            </p>
-          </aside>
+          <CartRail
+            lines={lines}
+            items={items}
+            compat={compat}
+            settings={settings}
+            selected={selected}
+            pendingStart={start}
+            pendingEnd={end}
+            onAddSelected={addSelected}
+            onUpdateDates={updateDates}
+            onSetRateMode={setRateMode}
+            onRemove={removeLine}
+            fulfillment={fulfillment}
+            onFulfillment={setFulfillment}
+            address={address}
+            onAddress={setAddress}
+            deliveryQuote={deliveryQuote}
+            onDeliveryQuote={setDeliveryQuote}
+          />
         </div>
       </main>
 
