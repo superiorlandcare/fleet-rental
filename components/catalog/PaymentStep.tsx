@@ -26,6 +26,7 @@ export type BookingResult = {
     total: number;
   };
   payment: { venmo: string | null; cashapp: string | null; zelle: string | null };
+  terms: { hourCapPerDay: number; overagePerHour: number };
   fulfillment: "delivery" | "pickup";
   address: string | null;
   shopAddress: string;
@@ -131,7 +132,10 @@ export function PaymentStep({ result, onDone }: { result: BookingResult; onDone:
         <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-zinc-400">
           <li>{money(q.deposit)} deposit is due upfront with every rental.</li>
           <li>Return equipment with a full tank of fuel.</li>
-          <li>Rentals include up to 7 machine hours per day — overages are billed at return.</li>
+          <li>
+            Rentals include up to {result.terms.hourCapPerDay} machine hours per day —
+            overage is billed at {money(result.terms.overagePerHour)}/hr at return.
+          </li>
           <li>Bring it back clean — cleaning fees apply otherwise.</li>
           <li>The rental form is signed and keys are handed off in person at {result.fulfillment === "delivery" ? "delivery" : "pickup"}.</li>
         </ul>

@@ -7,6 +7,8 @@ export type Settings = {
   delivery_per_mile: number;
   deposit_amount: number;
   request_window_hours: number;
+  hour_cap_per_day: number;
+  overage_per_hour: number;
   venmo: string | null;
   cashapp: string | null;
   zelle: string | null;

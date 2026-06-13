@@ -265,6 +265,10 @@ export async function POST(req: Request) {
     total
   )}. ${p.fulfillment === "delivery" ? "Delivery" : "Pickup"}. ${phone}`;
 
+  // Survive a not-yet-migrated settings row.
+  const hourCap = settings.hour_cap_per_day ?? 7;
+  const overageRate = settings.overage_per_hour ?? 50;
+
   const payLines = [
     settings.venmo ? `Venmo: ${settings.venmo}` : null,
     settings.cashapp ? `CashApp: ${settings.cashapp}` : null,
@@ -292,7 +296,7 @@ export async function POST(req: Request) {
     "The fine print:",
     `• ${money(deposit)} deposit is due upfront with every rental.`,
     "• Return equipment with a full tank of fuel.",
-    "• Rentals include up to 7 machine hours per day — overages are billed at return.",
+    `• Rentals include up to ${hourCap} machine hours per day — overage is billed at ${money(overageRate)}/hr at return.`,
     "• Bring it back clean — cleaning fees apply otherwise.",
     "• The rental form is signed and keys are handed off in person at pickup or delivery.",
     "",
@@ -341,6 +345,7 @@ export async function POST(req: Request) {
       total,
     },
     payment: { venmo: settings.venmo, cashapp: settings.cashapp, zelle: settings.zelle },
+    terms: { hourCapPerDay: hourCap, overagePerHour: overageRate },
     fulfillment: p.fulfillment,
     address: p.fulfillment === "delivery" ? address : null,
     shopAddress: settings.shop_address,
