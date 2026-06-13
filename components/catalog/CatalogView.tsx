@@ -18,6 +18,7 @@ import { Gallery } from "./Gallery";
 import { AttachmentsRail, type RailEntry } from "./AttachmentsRail";
 import { AvailabilityCalendar } from "./AvailabilityCalendar";
 import { CartRail, type DeliveryQuote } from "./CartRail";
+import { PaymentStep, type BookingResult } from "./PaymentStep";
 
 type Toast = { msg: string; kind: "ok" | "err" };
 
@@ -67,16 +68,31 @@ export function CatalogView({
     setTimeout(() => setToast(null), 2600);
   };
 
+  const [result, setResult] = useState<BookingResult | null>(null);
+
   // Live availability — bare date ranges per item, no PII.
   const [ranges, setRanges] = useState<AvailabilityRange[]>([]);
   const [loadingAvail, setLoadingAvail] = useState(true);
-  useEffect(() => {
+  const loadAvailability = () =>
     fetch("/api/availability")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => Array.isArray(data) && setRanges(data))
       .catch(() => {})
       .finally(() => setLoadingAvail(false));
+  useEffect(() => {
+    loadAvailability();
   }, []);
+
+  const handleSubmitted = (r: BookingResult) => {
+    setResult(r);
+    setLines([]);
+    setStart(null);
+    setEnd(null);
+    setAddress("");
+    setDeliveryQuote(null);
+    loadAvailability();
+    window.scrollTo({ top: 0 });
+  };
 
   // Booked = live ranges plus what's already in this cart.
   const isBooked = (itemId: string, day: string, excludeKey?: string) =>
@@ -237,6 +253,9 @@ export function CatalogView({
         </div>
       )}
 
+      {result ? (
+        <PaymentStep result={result} onDone={() => setResult(null)} />
+      ) : (
       <main className="mx-auto max-w-5xl px-5 py-7">
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
           <div className="space-y-8">
@@ -328,9 +347,12 @@ export function CatalogView({
             onAddress={setAddress}
             deliveryQuote={deliveryQuote}
             onDeliveryQuote={setDeliveryQuote}
+            onSubmitted={handleSubmitted}
+            onConflict={loadAvailability}
           />
         </div>
       </main>
+      )}
 
       <footer className="border-t border-zinc-800">
         <div className="mx-auto max-w-5xl px-5 py-6 text-xs text-zinc-600">

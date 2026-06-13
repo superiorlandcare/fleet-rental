@@ -8,6 +8,7 @@ import { money } from "@/lib/format";
 import { isInstantConfirm } from "@/lib/pricing";
 import { priceLines, quoteTotals, type CartLine, type Fulfillment } from "@/lib/cart";
 import { Field, Row } from "@/components/ui";
+import type { BookingResult } from "./PaymentStep";
 
 export type DeliveryQuote = { miles: number; fee: number };
 
@@ -29,6 +30,8 @@ export function CartRail({
   onAddress,
   deliveryQuote,
   onDeliveryQuote,
+  onSubmitted,
+  onConflict,
 }: {
   lines: CartLine[];
   items: Item[];
@@ -47,12 +50,17 @@ export function CartRail({
   onAddress: (a: string) => void;
   deliveryQuote: DeliveryQuote | null;
   onDeliveryQuote: (q: DeliveryQuote | null) => void;
+  onSubmitted: (result: BookingResult) => void;
+  /** A line got booked out from under us — parent refreshes availability. */
+  onConflict: () => void;
 }) {
   const [checkingFee, setCheckingFee] = useState(false);
   const [feeError, setFeeError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const priced = useMemo(
     () => priceLines(lines, items, compat, fulfillment),
@@ -86,6 +94,48 @@ export function CartRail({
       setFeeError("Couldn't compute the delivery fee. Try again.");
     } finally {
       setCheckingFee(false);
+    }
+  };
+
+  const submit = async () => {
+    setSubmitError(null);
+    if (!lines.length) return;
+    if (!name.trim()) return setSubmitError("Add your name.");
+    if (phone.replace(/\D/g, "").length < 10) return setSubmitError("Add a valid phone number.");
+    if (!/^\S+@\S+\.\S+$/.test(email.trim()))
+      return setSubmitError("Add a valid email — your quote and payment details go there.");
+    if (fulfillment === "delivery" && address.trim().length < 8)
+      return setSubmitError("Add the delivery address.");
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lines: lines.map((l) => ({
+            itemId: l.itemId,
+            attachedToItemId: l.attachedToItemId,
+            start: l.start,
+            end: l.end,
+            rateMode: l.rateMode,
+          })),
+          fulfillment,
+          address: fulfillment === "delivery" ? address.trim() : undefined,
+          customer: { name: name.trim(), phone: phone.trim(), email: email.trim() },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSubmitError(data.error ?? "Something went wrong. Try again.");
+        if (res.status === 409) onConflict();
+        return;
+      }
+      onSubmitted(data);
+    } catch {
+      setSubmitError("Something went wrong. Check your connection and try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -313,21 +363,27 @@ export function CartRail({
         )}
       </div>
 
-      {/* customer + submit (wired to /api/reservations in the next step) */}
+      {/* customer + submit */}
       <Field label="Name" value={name} onChange={setName} placeholder="Jordan / company" />
       <Field label="Phone" value={phone} onChange={setPhone} placeholder="440-555-0100" type="tel" />
       <Field label="Email" value={email} onChange={setEmail} placeholder="you@example.com" type="email" />
       <button
         type="button"
-        disabled
-        className="font-display w-full cursor-not-allowed rounded-md bg-zinc-800 py-2.5 font-semibold tracking-wide text-zinc-500"
+        disabled={submitting || lines.length === 0}
+        onClick={submit}
+        className="font-display w-full rounded-md bg-rapid-500 py-2.5 font-semibold tracking-wide text-zinc-950 transition hover:bg-rapid-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-rapid-300 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
       >
-        Book these dates
+        {submitting
+          ? "Booking…"
+          : instant === false
+            ? "Send request"
+            : "Book these dates"}
       </button>
+      {submitError && <div className="mt-2 text-xs text-red-400">{submitError}</div>}
       <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-        Booking goes live in the next build step. Every rental carries a{" "}
-        {settings ? money(settings.deposit_amount) : "$250"} upfront deposit; you&apos;ll get the
-        full quote and payment details after you submit.
+        Every rental carries a {settings ? money(settings.deposit_amount) : "$250"} upfront
+        deposit. You&apos;ll get the full quote and payment details right after you submit —
+        no card needed here.
       </p>
     </aside>
   );
