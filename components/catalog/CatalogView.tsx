@@ -381,9 +381,6 @@ export function CatalogView({
       <footer className="border-t border-zinc-800">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-6 text-xs text-zinc-600">
           <span>Superior Landcare LLC · {settings?.shop_address ?? "Perry, Ohio"}</span>
-          <a href="/login" className="transition hover:text-zinc-400">
-            Admin
-          </a>
         </div>
       </footer>
     </div>

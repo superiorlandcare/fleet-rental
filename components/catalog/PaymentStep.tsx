@@ -120,7 +120,8 @@ export function PaymentStep({ result, onDone }: { result: BookingResult; onDone:
           ))}
         </div>
         <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-          Send the {money(q.deposit)} deposit (or the full amount) to any handle above and
+          Send the {money(q.deposit)}{" "}
+          deposit (or the full amount) to any handle above and
           we&apos;ll mark you paid. Include your name in the payment note.
         </p>
       </div>

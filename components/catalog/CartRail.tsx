@@ -384,8 +384,8 @@ export function CartRail({
       </button>
       {submitError && <div className="mt-2 text-xs text-red-400">{submitError}</div>}
       <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-        Every rental carries a {settings ? money(settings.deposit_amount) : "$250"} upfront
-        deposit. You&apos;ll get the full quote and payment details right after you submit —
+        Every rental carries a {settings ? money(settings.deposit_amount) : "$250"}{" "}
+        upfront deposit. You&apos;ll get the full quote and payment details right after you submit —
         no card needed here.
       </p>
     </aside>
