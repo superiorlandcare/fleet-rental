@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { AdminApp } from "@/components/admin/AdminApp";
 import { SignOutButton } from "./SignOutButton";
 
 // Second layer behind middleware — never render admin without a session.
@@ -25,10 +26,7 @@ export default async function AdminPage() {
         </div>
         <SignOutButton />
       </div>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-8 text-center text-sm text-zinc-500">
-        Schedule board, requests queue, bookings, catalog, and settings land here in the
-        next build step.
-      </div>
+      <AdminApp />
     </main>
   );
 }

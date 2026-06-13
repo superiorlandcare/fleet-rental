@@ -57,3 +57,38 @@ export type AvailabilityRange = {
   start_date: string;
   end_date: string;
 };
+
+export type BookingType = "reservation" | "block";
+export type BookingStatus = "requested" | "confirmed" | "cancelled";
+
+export type Booking = {
+  id: string;
+  type: BookingType;
+  status: BookingStatus;
+  customer_name: string | null;
+  customer_phone: string | null;
+  customer_email: string | null;
+  fulfillment: "delivery" | "pickup" | null;
+  address: string | null;
+  distance_miles: number | null;
+  delivery_fee: number | null;
+  items_subtotal: number | null;
+  deposit: number | null;
+  estimated_total: number | null;
+  paid: boolean;
+  reason: string | null;
+  created_at: string;
+};
+
+export type BookingItem = {
+  id: string;
+  booking_id: string;
+  item_id: string;
+  attached_to_item_id: string | null;
+  start_date: string;
+  end_date: string;
+  active: boolean;
+  four_hour: boolean;
+};
+
+export type BookingWithItems = Booking & { booking_items: BookingItem[] };
